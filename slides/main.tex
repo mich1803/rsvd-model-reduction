@@ -126,7 +126,7 @@ $A_k$ è la migliore approssimazione di rango $k$ in norma spettrale e Frobenius
 
   \item Calcola la SVD piccola:
   \[
-  B=\widetilde U\Sigma V^T \ \ \text{con} \ \ \widetilde U \in U(k+p).
+  B=\widetilde U\Sigma V^T \ \ \text{con} \ \ \widetilde U \in O(k+p).
   \]
 \end{enumerate}
 \column{0.44\textwidth}
@@ -164,10 +164,10 @@ $q$ & power iterations & amplifica le direzioni singolari dominanti \\
 \vspace{0.2cm}
 Con power iterations:
 \[
-Y=(AA^T)^qA\Omega.
+Y=(AA^T)^qA\Omega \qquad (\sigma_i \rightarrow \sigma_i^{2q+1})
 \]
 \begin{alertblock}{Trade-off}
-Aumentare $p$ e $q$ può migliorare la qualità, ma aumenta il costo e gli errori se le matrici sono malcondizionate.
+Aumentare $p$ e $q$ può migliorare la qualità, ma aumenta il costo computazionale.
 \end{alertblock}
 \end{frame}
 
@@ -285,15 +285,19 @@ SVD troncata: circa $k(m+n+1)$ coefficienti.
 \begin{frame}{rSVD per POD e POD-DEIM: introduzione}
 Le PDE non lineari discretizzate generano sistemi ad altissima dimensione:
 \[
-\dot y(t)=Ay(t)+F(t,y(t)), \qquad y(t)\in\mathbb{R}^{d}, \quad d\gg 1.
+\dot y(t)=Ay(t)+F(t,y(t)), \qquad 
+\]
+
+\[
+y(t)\in\mathbb{R}^{d}, \quad A \in \mathbb{R}^{d \times d}, \quad F:[0, T] \times \mathbb{R}^d \rightarrow \mathbb{R}^d, \quad d\gg 1
 \]
 \begin{itemize}
   \item \textbf{POD}: riduce la dimensione dello stato costruendo una base dai dati.
-  \item \textbf{rSVD}: accelera la costruzione offline delle basi POD.
   \item \textbf{DEIM}: riduce il costo online della valutazione del termine non lineare.
+    \item \textbf{rSVD}: accelera la costruzione offline delle basi POD ($\Psi$) e delle basi DEIM ($\Phi$).
 \end{itemize}
 \begin{block}{Pipeline del notebook}
-Full Order Model $\rightarrow$ snapshots di stato e nonlinear snapshots $\rightarrow$ basi POD/rPOD $\rightarrow$ punti DEIM $\rightarrow$ confronto train/test.
+Full Order Model $\rightarrow$ snapshots di stato e nonlinear snapshots $\rightarrow$ basi POD $\rightarrow$ punti DEIM $\rightarrow$ confronto train/test.
 \end{block}
 \end{frame}
 
@@ -308,13 +312,13 @@ si costruisce la snapshot matrix
 Y=\begin{bmatrix}y(t_0)&y(t_1)&\cdots&y(t_{N-1})\end{bmatrix}
 \in\mathbb{R}^{d\times N}.
 \]
-Applicando la SVD:
+Applicando la rSVD:
 \[
 Y=U\Sigma V^T.
 \]
 La matrice delle basi POD di dimensione $r$ e' formata dai primi $r$ vettori singolari sinistri:
 \[
-\Psi=\begin{bmatrix}\psi_1&\psi_2&\cdots&\psi_r\end{bmatrix}\in\mathbb{R}^{d\times r}.
+U_{[0:r]}=:\Psi=\begin{bmatrix}\psi_1&\psi_2&\cdots&\psi_r\end{bmatrix}\in\mathbb{R}^{d\times r}.
 \]
 La soluzione viene approssimata come
 \[
@@ -336,9 +340,9 @@ Nel codice sono memorizzate nella matrice
 F(t_0,y(t_0))&F(t_1,y(t_1))&\cdots&F(t_{N-1},y(t_{N-1}))
 \end{bmatrix}.
 \]
-Dalla SVD di $\widehat F$ si ottiene la matrice delle basi DEIM:
+Dalla rSVD di $\widehat F$ si ottiene la matrice delle basi DEIM:
 \[
-\Phi=\begin{bmatrix}\phi_1&\phi_2&\cdots&\phi_m\end{bmatrix}\in\mathbb{R}^{d\times m}.
+U_{[0:m]}=:\Phi=\begin{bmatrix}\phi_1&\phi_2&\cdots&\phi_m\end{bmatrix}\in\mathbb{R}^{d\times m}.
 \]
 DEIM approssima il termine non lineare come
 \[
@@ -354,18 +358,71 @@ P=\begin{bmatrix}e_{\rho_1}&e_{\rho_2}&\cdots&e_{\rho_m}\end{bmatrix}.
 \]
 Nel notebook gli indici $\rho_i$ sono scelti con l'algoritmo greedy DEIM:
 \begin{enumerate}
-  \item $\rho_1=\arg\max_j|\phi_1(j)|$;
+  \item $\rho_1=\arg\max_j|\phi_1(j)|, \ P = [e_{\rho_1}], \ \tilde{\Phi}=[\phi_1]$;
   \item per $i=2,\ldots,m$ si risolve
   \[
-  (P_{i-1}^T\Phi_{i-1})c=P_{i-1}^T\phi_i,
+  (P^T\tilde{\Phi})c=P^T\phi_i,
   \]
-  si calcola il residuo $r_i=\phi_i-\Phi_{i-1}c$;
+  si calcola il residuo $r_i=\phi_i-\tilde{\Phi}c$;
   \item si sceglie $\rho_i=\arg\max_j|r_i(j)|$.
+  \item $P \leftarrow [P \ e_{\rho_i}], \ \tilde{\Phi} \leftarrow [\tilde{\Phi} \ \phi_i]$
 \end{enumerate}
 Applicando $P^T$ a $F(t,y(t))\approx\Phi c(t)$:
 \[
 c(t)=(P^T\Phi)^{-1}P^TF(t,y(t)).
 \]
+\end{frame}
+
+% 14
+\begin{frame}{Sistema ridotto finale POD e POD-DEIM}
+Partendo dal sistema full order:
+$\dot y(t)=Ay(t)+F(t,y(t)), 
+\qquad y(t)\in\mathbb{R}^{d}, 
+\quad A\in\mathbb{R}^{d\times d},
+\quad F(t,y)\in\mathbb{R}^{d}.$
+
+
+Con POD si approssima:
+\[
+y(t)\approx \Psi y^r(t),
+\qquad 
+\Psi\in\mathbb{R}^{d\times r},
+\quad y^r(t)\in\mathbb{R}^{r},
+\quad r\ll d.
+\]
+
+Il sistema POD diventa:
+$\dot y^r(t)
+=
+A^r y^r(t)
++
+\Psi^T F(t,\Psi y^r(t)),$
+
+dove $A^r=\Psi^T A\Psi\in\mathbb{R}^{r\times r}.$
+
+
+Con DEIM:
+$F(t,\Psi y^r(t))
+\approx
+\Phi(P^T\Phi)^{-1}P^TF(t,\Psi y^r(t)).$
+
+
+\begin{block}{Sistema finale POD-DEIM}
+\[
+\dot y^r(t)
+=
+A^r y^r(t)
++
+\underbrace{\Psi^T\Phi(P^T\Phi)^{-1}}_{\in\mathbb{R}^{r\times m}}
+\underbrace{P^TF(t,\Psi y^r(t))}_{\in\mathbb{R}^{m}}.
+\]
+\[
+\Psi\in\mathbb{R}^{d\times r},\quad
+\Phi\in\mathbb{R}^{d\times m},\quad
+P\in\mathbb{R}^{d\times m},\quad
+P^T\Phi\in\mathbb{R}^{m\times m}.
+\]
+\end{block}
 \end{frame}
 
 % 14
@@ -415,26 +472,51 @@ La matrice degli snapshots ha dimensione $65536\times201$.
 \includegraphics[width=0.72\textwidth,height=0.24\textheight,keepaspectratio]{figures/ac.png}
 \end{frame}
 
-% 16
 \begin{frame}{Allen--Cahn: full order model e snapshots}
-Sul reticolo dei punti interni si costruisce il Laplaciano sparso $L$ con differenze finite centrate.
-L'equazione e' integrata con schema semi-implicito:
+
+L'equazione di Allen--Cahn
+$\frac{\partial y}{\partial t}
+=
+\alpha \Delta y
++
+\mu (y-y^3)
+$
+
+e' discretizzata nello spazio mediante differenze finite centrate,
+ottenendo il Laplaciano sparso $L$.
+Nel tempo si utilizza uno schema semi-implicito ottenuto applicando
+Eulero implicito al termine diffusivo e Eulero esplicito al termine non lineare:
+
+\[
+\frac{y^{n+1}-y^n}{\Delta t}
+=
+\alpha L y^{n+1}
++
+\mu \left(y^n-(y^n)^3\right),
+\]
+
+da cui
+
 \[
 (I-\Delta t\,\alpha L)y^{n+1}
 =
 y^n+\Delta t\,\mu\left(y^n-(y^n)^3\right).
 \]
+
 \begin{itemize}
+  \item Il termine diffusivo e' trattato implicitamente per migliorare la stabilita' numerica.
+  \item Il termine non lineare e' mantenuto esplicito per evitare la soluzione di un sistema non lineare ad ogni passo temporale.
   \item La matrice $I-\Delta t\,\alpha L$ e' fattorizzata una sola volta.
-  \item Ogni 5 passi temporali si salva una colonna di $Y$.
-  \item Gli snapshots sono divisi nel notebook in $70\%$ train e $30\%$ test.
-\end{itemize}
-\begin{block}{Snapshot matrix}
-\[
-Y_{\mathrm{AC}}=\begin{bmatrix}y(t_0)&\cdots&y(t_{200})\end{bmatrix}
+  \item Snapshot matrix $
+Y_{\mathrm{AC}}
+=
+\begin{bmatrix}
+y(t_0)&\cdots&y(t_{200})
+\end{bmatrix}
 \in\mathbb{R}^{65536\times201}.
-\]
-\end{block}
+$
+\end{itemize}
+
 \end{frame}
 
 % 17
@@ -640,13 +722,27 @@ s(u(\mu_{255});\mu_{255})
 
 % 25
 \begin{frame}{Conclusioni e considerazioni}
+\begin{columns}[T]
+
+\column{0.52\textwidth}
 \begin{itemize}
   \item La rSVD approssima la SVD troncata con buona accuratezza e costo computazionale inferiore.
-  \item L'oversampling $p$ è un parametro semplice ma molto efficace per stabilizzare l'approssimazione.
-  \item Le power iterations $q$ non vanno usate automaticamente: possono aiutare con spettri lenti, ma in alcuni test hanno peggiorato l'errore.
-  \item Nelle immagini, rSVD ottiene ricostruzioni simili alla SVD con tempi minori. (q=1 meglio di q=0)
-  \item Nei ROM per PDE, rSVD accelera la fase offline; DEIM riduce il costo online dei termini non lineari (q=0 meglio di q=1 e q=2).
+  \item L'oversampling $p$ stabilizza la stima del sottospazio dominante e riduce il rischio di perdere direzioni importanti.
+  \item Le power iterations $q$ non vanno usate automaticamente: amplificano le direzioni dominanti, ma aumentano il costo computazionale.
+  \item Nelle immagini, $q=1$ migliora l'errore relativo rafforzando lo spettro dominante.
+  \item Nei test POD/POD-DEIM, gli snapshot PDE sono già low-rank: $q=0$ con oversampling è spesso sufficiente; con $q=1,2$ l'errore non migliora all'aumentare del rango della matrice troncata.
 \end{itemize}
+
+\column{0.48\textwidth}
+\centering
+
+\includegraphics[width=\textwidth,height=0.36\textheight,keepaspectratio]{figures/image_sigma_decay_q0_q1.png}
+
+\vspace{0.15cm}
+
+\includegraphics[width=\textwidth,height=0.36\textheight,keepaspectratio]{figures/allen_cahn_snapshot_sigma_decay_q0_q1_q2.png}
+
+\end{columns}
 \end{frame}
 
 % 20
